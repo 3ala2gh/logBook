@@ -4,7 +4,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from invariants import check_plan
 
-from planner.hos import build_timeline
+from planner.hos import build_timeline, candidate_timelines
 from planner.models import Leg
 
 
@@ -29,8 +29,9 @@ any_cycle = st.floats(min_value=0, max_value=70, allow_nan=False)
 @settings(max_examples=400, deadline=None)
 @given(legs(), legs(min_miles=1), cycles, starts)
 def test_every_plan_obeys_hos(leg1, leg2, cycle, start):
-    segments = build_timeline([leg1, leg2], cycle, start)
-    check_plan(segments, [leg1, leg2], cycle)
+    # every candidate the planner considers must be legal, not just the winner
+    for segments in candidate_timelines([leg1, leg2], cycle, start):
+        check_plan(segments, [leg1, leg2], cycle)
 
 
 @settings(max_examples=150, deadline=None)

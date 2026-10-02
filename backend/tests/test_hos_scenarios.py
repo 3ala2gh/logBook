@@ -3,7 +3,7 @@ from datetime import datetime
 import pytest
 from invariants import check_plan
 
-from planner.hos import PlanningError, build_timeline, round_up_to_slot
+from planner.hos import PlanningError, build_timeline, candidate_timelines, round_up_to_slot
 from planner.logs import split_days
 from planner.models import Activity, Leg, Status
 
@@ -109,16 +109,18 @@ def test_high_cycle_forces_restart_mid_trip():
     assert any(d.recap.restart_note and 'completed' in d.recap.restart_note for d in days)
 
 
-def test_inevitable_restart_replaces_a_ten_hour_rest():
-    # LA -> Dallas -> New York with 20 h used: the cycle runs out on day 4.
-    segments = plan([Leg(1435, 1380), Leg(1550, 1500)], cycle=20)
-    [restart] = [s for s in segments if s.activity is Activity.RESTART]
-    assert 'cannot cover the rest of the trip' in restart.reason
-    # no pointless 10-hour rest -> short drive -> restart sequence
-    i = segments.index(restart)
-    previous_rest = max((j for j, s in enumerate(segments[:i]) if s.activity is Activity.REST), default=None)
-    driving_between = sum(s.minutes for s in segments[previous_rest:i] if s.status is Status.DRIVING)
-    assert driving_between >= 8 * 60
+def test_unavoidable_restart_is_placed_for_earliest_arrival():
+    # LA -> Dallas -> New York with 20 h used: the cycle cannot cover the trip.
+    legs = [Leg(1435, 1380), Leg(1550, 1500)]
+    options = candidate_timelines(legs, 20, START)
+    assert len(options) > 1
+    for option in options:
+        check_plan(option, legs, 20)
+    chosen = plan(legs, cycle=20)
+    assert chosen[-1].end == min(option[-1].end for option in options)
+    assert sum(s.activity is Activity.RESTART for s in chosen) == 1
+    # better than leaving the restart until the cycle runs out mid-shift
+    assert chosen[-1].end < options[0][-1].end
 
 
 def test_cycle_at_70_starts_with_restart():

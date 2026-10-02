@@ -44,12 +44,32 @@ def round_up_to_slot(moment: datetime) -> datetime:
 
 
 def build_timeline(legs: Sequence[Leg], cycle_used_hours: float, start: datetime) -> list[Segment]:
-    """Plan the trip. `legs` is [current→pickup, pickup→dropoff]; `start` must be on a quarter hour."""
-    return _Planner(legs, cycle_used_hours, start).run()
+    """Plan the trip. `legs` is [current→pickup, pickup→dropoff]; `start` must be on a quarter hour.
+
+    When the 70-hour cycle cannot cover the whole trip, a 34-hour restart is
+    unavoidable. It can replace any of the 10-hour rests taken from then on,
+    or be left until the cycle actually runs out. Each option is planned and
+    the one that finishes earliest wins (ties go to the later restart).
+    """
+    return min(candidate_timelines(legs, cycle_used_hours, start), key=lambda option: option[-1].end)
+
+
+def candidate_timelines(legs: Sequence[Leg], cycle_used_hours: float, start: datetime) -> list[list[Segment]]:
+    baseline = _Planner(legs, cycle_used_hours, start)
+    options = [baseline.run()]
+    for k in reversed(range(baseline.unavoidable_rests)):  # min() keeps the first of equals
+        options.append(_Planner(legs, cycle_used_hours, start, restart_at_rest=k).run())
+    return options
 
 
 class _Planner:
-    def __init__(self, legs: Sequence[Leg], cycle_used_hours: float, start: datetime):
+    def __init__(
+        self,
+        legs: Sequence[Leg],
+        cycle_used_hours: float,
+        start: datetime,
+        restart_at_rest: int | None = None,
+    ):
         if len(legs) != 2:
             raise PlanningError('Expected two legs: current → pickup and pickup → drop-off.')
         if not 0 <= cycle_used_hours <= C.CYCLE_LIMIT / 60:
@@ -74,6 +94,11 @@ class _Planner:
         self.cycle = round(cycle_used_hours * 60)
         self.miles_since_fuel = 0.0
         self.pickup_done = False
+
+        # Which 10-hour rest (counting only those taken once a restart has become
+        # unavoidable) to replace with a 34-hour restart; None = only when forced.
+        self.restart_at_rest = restart_at_rest
+        self.unavoidable_rests = 0
 
     # --- main loop -------------------------------------------------------
 
@@ -176,12 +201,14 @@ class _Planner:
         self.add(Status.ON_DUTY, C.PRE_TRIP_MINUTES, Activity.PRE_TRIP, 'Start of shift')
 
     def daily_rest(self, reason: str) -> None:
-        # If the cycle cannot cover the rest of the trip, a restart is coming
-        # anyway; taking it now instead of a 10-hour rest is never slower.
         needed = self.remaining_driving() + (0 if self.pickup_done else C.PICKUP_MINUTES)
         if self.cycle_available_after_rest() < needed:
-            self.restart(f'{reason}; 70-hour cycle cannot cover the rest of the trip')
-            return
+            # A restart is unavoidable; build_timeline tries taking it here.
+            index = self.unavoidable_rests
+            self.unavoidable_rests += 1
+            if index == self.restart_at_rest:
+                self.restart(f'{reason}; 70-hour cycle cannot cover the rest of the trip')
+                return
         self.end_shift()
         self.add(C.DAILY_REST_STATUS, C.DAILY_REST_MINUTES, Activity.REST, reason)
         self.reset_shift()
