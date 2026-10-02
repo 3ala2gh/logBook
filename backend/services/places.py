@@ -1,11 +1,8 @@
-"""Shared helpers for provider clients: HTTP session and "City, ST" labels."""
+"""A place on the map and how to label it "City, ST"."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-
-import requests
-from django.conf import settings
 
 US_STATES = {
     'Alabama': 'AL', 'Alaska': 'AK', 'Arizona': 'AZ', 'Arkansas': 'AR', 'California': 'CA',
@@ -26,9 +23,7 @@ US_STATES = {
     'Prince Edward Island': 'PE', 'Quebec': 'QC', 'Québec': 'QC', 'Saskatchewan': 'SK',
 }  # fmt: skip
 
-
-class ProviderError(Exception):
-    """A provider failed in a way the next provider might not."""
+NORTH_AMERICA = ('United States', 'Canada')
 
 
 @dataclass(frozen=True)
@@ -37,11 +32,13 @@ class Place:
     lat: float
     lng: float
 
-    def as_dict(self) -> dict:
-        return {'label': self.label, 'lat': self.lat, 'lng': self.lng}
+    @property
+    def point(self) -> tuple[float, float]:
+        return (self.lat, self.lng)
 
 
 def state_abbr(state: str | None) -> str | None:
+    """State or province name to its postal code (Texas → TX); unknown regions pass through."""
     if not state:
         return None
     return US_STATES.get(state, state)
@@ -52,30 +49,8 @@ def city_state(city: str | None, state: str | None, country: str | None = None) 
     abbr = state_abbr(state)
     if city and abbr and abbr != state:
         return f'{city}, {abbr}'
-    if city and country and country not in ('United States', 'Canada'):
+    if city and country and country not in NORTH_AMERICA:
         return f'{city}, {country}'
     if city and abbr:
         return f'{city}, {abbr}'
     return city or abbr
-
-
-_session = None
-
-
-def http() -> requests.Session:
-    global _session
-    if _session is None:
-        _session = requests.Session()
-        _session.headers['User-Agent'] = settings.GEOCODER_USER_AGENT
-    return _session
-
-
-def get_json(url: str, **kwargs) -> dict:
-    kwargs.setdefault('timeout', settings.PROVIDER_TIMEOUT_SECONDS)
-    try:
-        response = http().get(url, **kwargs)
-    except requests.RequestException as exc:
-        raise ProviderError(f'{url}: {exc}') from exc
-    if response.status_code != 200:
-        raise ProviderError(f'{url}: HTTP {response.status_code}')
-    return response.json()

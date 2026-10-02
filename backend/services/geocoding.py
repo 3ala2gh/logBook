@@ -16,7 +16,10 @@ from concurrent.futures import ThreadPoolExecutor
 from django.conf import settings
 from django.core.cache import cache
 
-from .places import Place, ProviderError, city_state, get_json, state_abbr
+from planner.geometry import LatLng
+
+from .http import ProviderError, get_json
+from .places import Place, city_state, state_abbr
 
 logger = logging.getLogger(__name__)
 
@@ -24,65 +27,79 @@ PHOTON_URL = 'https://photon.komoot.io'
 ORS_GEOCODE_URL = 'https://api.openrouteservice.org/geocode'
 US_CENTER = (39.8, -98.6)  # bias search results toward the continental US
 SEARCH_LIMIT = 6
-GRID = 20  # reverse-geocode cache grid: 1/20 degree
+REVERSE_GRID = 20  # cache reverse lookups per 1/20 degree (~3 miles)
+REVERSE_RADIUS_KM = 60
+REVERSE_WORKERS = 4
+
+
+# --- public API ----------------------------------------------------------------
 
 
 def search(query: str) -> list[Place]:
+    """Autocomplete suggestions for a partial address or city."""
     query = ' '.join(query.split())
     key = 'geo:search:' + hashlib.sha1(query.lower().encode()).hexdigest()
     cached = cache.get(key)
     if cached is not None:
         return cached
 
-    providers = [_ors_search, _photon_search] if settings.ORS_API_KEY else [_photon_search]
-    results, last_error = None, None
-    for provider in providers:
+    last_error: ProviderError | None = None
+    for searcher in _with_ors_first(_ors_search, _photon_search):
         try:
-            results = provider(query)
-            break
+            results = searcher(query)
         except ProviderError as exc:
             logger.warning('Geocoder failed: %s', exc)
             last_error = exc
-    if results is None:
-        raise last_error or ProviderError('No geocoder available')
-    cache.set(key, results)
-    return results
+            continue
+        cache.set(key, results)
+        return results
+    raise last_error or ProviderError('No geocoder available')
 
 
 def reverse(lat: float, lng: float) -> str | None:
-    key = f'geo:rev:{round(lat * GRID)}:{round(lng * GRID)}'
+    """Nearest town as "City, ST", or None if every provider fails."""
+    key = f'geo:rev:{_grid_cell((lat, lng))}'
     cached = cache.get(key)
     if cached is not None:
         return cached or None
 
-    providers = [_ors_reverse, _photon_reverse] if settings.ORS_API_KEY else [_photon_reverse]
     label = None
-    for provider in providers:
+    for geocoder in _with_ors_first(_ors_reverse, _photon_reverse):
         try:
-            label = provider(lat, lng)
-            if label:
-                break
+            label = geocoder(lat, lng)
         except ProviderError as exc:
             logger.warning('Reverse geocoder failed: %s', exc)
-    cache.set(key, label or '')
+            continue
+        if label:
+            break
+    cache.set(key, label or '')  # cache misses too, so a failing point isn't retried every plan
     return label
 
 
-def reverse_many(points: Iterable[tuple[float, float]]) -> dict[tuple[float, float], str | None]:
+def reverse_many(points: Iterable[LatLng]) -> dict[LatLng, str | None]:
     """Reverse-geocode several points in parallel, one request per grid cell."""
     points = list(dict.fromkeys(points))
-    by_cell: dict[tuple[int, int], tuple[float, float]] = {}
-    for lat, lng in points:
-        by_cell.setdefault((round(lat * GRID), round(lng * GRID)), (lat, lng))
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    by_cell = {}
+    for point in points:
+        by_cell.setdefault(_grid_cell(point), point)
+    with ThreadPoolExecutor(max_workers=REVERSE_WORKERS) as pool:
         labels = dict(zip(by_cell, pool.map(lambda p: reverse(*p), by_cell.values()), strict=True))
-    return {p: labels[(round(p[0] * GRID), round(p[1] * GRID))] for p in points}
+    return {point: labels[_grid_cell(point)] for point in points}
 
 
-# --- Photon -----------------------------------------------------------------
+def _grid_cell(point: LatLng) -> tuple[int, int]:
+    return round(point[0] * REVERSE_GRID), round(point[1] * REVERSE_GRID)
+
+
+def _with_ors_first[T](ors: T, fallback: T) -> list[T]:
+    return [ors, fallback] if settings.ORS_API_KEY else [fallback]
+
+
+# --- Photon ------------------------------------------------------------------------
 
 
 def _photon_label(props: dict) -> str:
+    """A suggestion label such as "Union Station, Chicago, IL" from a Photon feature's properties."""
     name = props.get('name')
     if not name and props.get('street'):
         name = ' '.join(filter(None, [props.get('housenumber'), props['street']]))
@@ -96,7 +113,7 @@ def _photon_label(props: dict) -> str:
         parts.append(abbr)
     if country and props.get('countrycode') not in ('US', None):
         parts.append(country)
-    return ', '.join(dict.fromkeys(p for p in parts if p))
+    return ', '.join(dict.fromkeys(part for part in parts if part))
 
 
 def _photon_search(query: str) -> list[Place]:
@@ -119,7 +136,14 @@ def _photon_reverse(lat: float, lng: float) -> str | None:
     # what the Remarks section asks for ("city, town, or village, and State").
     data = get_json(
         f'{PHOTON_URL}/reverse',
-        params={'lat': lat, 'lon': lng, 'limit': 1, 'lang': 'en', 'layer': 'city', 'radius': 60},
+        params={
+            'lat': lat,
+            'lon': lng,
+            'limit': 1,
+            'lang': 'en',
+            'layer': 'city',
+            'radius': REVERSE_RADIUS_KM,
+        },
     )
     features = data.get('features') or []
     if not features:
@@ -129,7 +153,7 @@ def _photon_reverse(lat: float, lng: float) -> str | None:
     return city_state(city, props.get('state'), props.get('country'))
 
 
-# --- OpenRouteService ------------------------------------------------------
+# --- OpenRouteService --------------------------------------------------------------
 
 
 def _ors_search(query: str) -> list[Place]:
@@ -168,7 +192,7 @@ def _ors_reverse(lat: float, lng: float) -> str | None:
         return None
     props = features[0].get('properties', {})
     city = props.get('locality') or props.get('localadmin') or props.get('name')
-    abbr = props.get('region_a') or state_abbr(props.get('region'))
     if props.get('country_a') not in ('USA', 'CAN', None):
         return city_state(city, None, props.get('country'))
+    abbr = props.get('region_a') or state_abbr(props.get('region'))
     return f'{city}, {abbr}' if city and abbr else city

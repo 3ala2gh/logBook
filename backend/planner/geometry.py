@@ -1,4 +1,4 @@
-"""Locate points along a route polyline by distance travelled."""
+"""Distances on the globe and positions along a route polyline."""
 
 from __future__ import annotations
 
@@ -47,3 +47,11 @@ class Polyline:
         t = (mile - start) / (end - start) if end > start else 0.0
         (lat1, lng1), (lat2, lng2) = self.points[i - 1], self.points[i]
         return (lat1 + (lat2 - lat1) * t, lng1 + (lng2 - lng1) * t)
+
+
+def thin(points: Sequence[LatLng], max_points: int = 1500) -> list[LatLng]:
+    """Keep at most `max_points` evenly spaced points (both ends kept), for drawing on a map."""
+    if len(points) <= max_points:
+        return list(points)
+    step = len(points) / (max_points - 1)
+    return [*(points[int(i * step)] for i in range(max_points - 1)), points[-1]]

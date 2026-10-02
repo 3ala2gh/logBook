@@ -6,6 +6,8 @@ Truck Driver's Guide to Hours of Service" (April 2022) and 49 CFR 395.
 
 from .models import Status
 
+DAY_MINUTES = 24 * 60
+
 # Paper logs are kept in quarter-hour increments; every segment boundary in
 # the timeline lands on a multiple of this.
 SLOT_MINUTES = 15
@@ -44,3 +46,6 @@ RESTART_ESCALATION_DRIVE = 60
 
 # Used when the routing provider only knows car speeds (OSRM fallback).
 FALLBACK_TRUCK_MPH = 55
+
+# A leg shorter than this is treated as zero (e.g. current location = pickup).
+MIN_LEG_MILES = 0.05

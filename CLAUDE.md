@@ -27,14 +27,25 @@ Run backend tests, frontend tests, lint and build before committing.
 
 ```
 backend/
-  planner/     PURE Python rules engine: no Django, no network. Fully unit-testable.
-    config.py    every HOS limit and planner assumption as a named constant
-    hos.py       build_timeline(legs, cycle_used_hours, start) -> [Segment]
-    logs.py      split_days(): cut at midnight, pad Off Duty, totals, remarks, recap
-    geometry.py  position along the route polyline by mile
-  services/    provider clients + response assembly (routing.py, geocoding.py, trip_plan.py)
-  trips/       DRF serializers/views/urls and the uniform error handler (errors.py)
-  tests/       invariants.py re-checks every HOS rule independently of the planner
+  planner/       PURE domain: no Django, no network. Fully unit-testable.
+    config.py      every HOS limit and planner assumption as a named constant
+    models.py      Status, Activity, StopType, Leg, Segment, Stop, DayLog…
+    hos.py         build_timeline() / candidate_timelines(): the rules engine
+    logs.py        split_days(): cut at midnight, pad Off Duty, totals, remarks, recap
+    stops.py       group non-driving segments into map/timeline stops
+    summary.py     headline numbers (miles, driving time, cycle left)
+    assumptions.py the assumptions panel text, built from config
+    slots.py       quarter-hour arithmetic;  geometry.py  distances, position by mile, thinning
+  services/      I/O and orchestration (Django settings + cache, network)
+    http.py        shared session, ProviderError
+    routing.py     ORS driving-hgv → OSRM fallback; Unroutable
+    geocoding.py   Photon/ORS search + nearest-town reverse geocoding (cached)
+    places.py      Place, "City, ST" labels;  timezones.py  home-terminal time
+    locating.py    lat/lng + town for each segment;  log_details.py  sheet header defaults
+    trip_plan.py   plan_trip(TripRequest) -> PlannedTrip (the one entry point)
+  trips/         HTTP only: serializers (request), presenters (response JSON),
+                 errors (all exception → {"error"} mapping), throttles, views (3 lines each)
+  tests/         invariants.py re-checks every HOS rule independently of the planner
 frontend/src/
   app/         App root (two routes: / and /demo/log, no router needed)
   pages/       one folder per page; page-only pieces live next to the page
@@ -75,7 +86,11 @@ API: `GET /api/health/`, `GET /api/geocode/?q=`, `POST /api/trips/plan/`. Errors
 
 ### Backend
 
-- **`planner/` must stay pure.** Rules change only in `planner/config.py` and `planner/hos.py`. Every new rule needs an invariant in `tests/invariants.py` and a scenario test.
+- **Layers depend downward only.** `trips` → `services` → `planner`. `planner/` must stay pure (no Django, no I/O), and anything with no I/O belongs there so it can be unit-tested.
+- **Views stay thin:** validate with a serializer, call one service function, return `present_*()`. No `try/except` in views. Raise domain exceptions (`PlanningError`, `Unroutable`, `ProviderError`, `TripError`) and let `trips/errors.py` map them.
+- **Rules change only in `planner/config.py` and `planner/hos.py`.** Every new rule needs an invariant in `tests/invariants.py` and a scenario test.
+- **Constants:** no magic numbers or strings inline. Use module-level constants (stop reasons in `hos.py`, provider URLs and limits at the top of each client).
+- **Types:** type every function signature. Prefer frozen dataclasses for values passed between layers (`TripRequest`, `PlannedTrip`, `Route`, `Limits`).
 - **Units:**
   - Time is integer minutes on 15-minute slots.
   - Datetimes are naive in home-terminal time; the time zone is applied only at the edges (`services/trip_plan.py`).

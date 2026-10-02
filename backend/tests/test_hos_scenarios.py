@@ -3,9 +3,10 @@ from datetime import datetime
 import pytest
 from invariants import check_plan
 
-from planner.hos import PlanningError, build_timeline, candidate_timelines, round_up_to_slot
+from planner.hos import PlanningError, build_timeline, candidate_timelines
 from planner.logs import split_days
 from planner.models import Activity, Leg, Status
+from planner.slots import round_up_to_slot
 
 START = datetime(2026, 10, 5, 8, 0)
 

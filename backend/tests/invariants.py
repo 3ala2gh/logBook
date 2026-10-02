@@ -7,9 +7,11 @@ timeline from scratch the way an inspector reading the logs would.
 from datetime import timedelta
 
 from planner import config as C
-from planner.hos import MIN_LEG_MILES
-from planner.logs import DAY_MINUTES, split_days
+from planner.logs import split_days
 from planner.models import Activity, Status
+
+MIN_LEG_MILES = C.MIN_LEG_MILES
+DAY_MINUTES = C.DAY_MINUTES
 
 EPS = 1e-6
 

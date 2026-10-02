@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime
 from enum import StrEnum
 
@@ -29,6 +29,17 @@ class Activity(StrEnum):
     BREAK = '30-min break'
     REST = '10-hr rest'
     RESTART = '34-hr restart'
+
+
+class StopType(StrEnum):
+    START = 'start'
+    PICKUP = 'pickup'
+    DROPOFF = 'dropoff'
+    FUEL = 'fuel'
+    BREAK = 'break'
+    REST = 'rest'
+    RESTART = 'restart'
+    INSPECTION = 'inspection'
 
 
 @dataclass(frozen=True)
@@ -62,6 +73,33 @@ class Segment:
     @property
     def miles(self) -> float:
         return self.end_mile - self.start_mile
+
+
+@dataclass
+class Stop:
+    """Consecutive non-driving segments at one place, e.g. post-trip + 10-hr rest + pre-trip."""
+
+    type: StopType
+    label: str
+    reason: str | None
+    segments: list[Segment]
+    segment_indexes: list[int]
+
+    @property
+    def first(self) -> Segment:
+        return self.segments[0]
+
+    @property
+    def arrive(self) -> datetime:
+        return self.segments[0].start
+
+    @property
+    def depart(self) -> datetime:
+        return self.segments[-1].end
+
+    @property
+    def minutes(self) -> int:
+        return sum(seg.minutes for seg in self.segments)
 
 
 @dataclass
@@ -100,4 +138,3 @@ class DayLog:
     from_place: str | None
     to_place: str | None
     recap: Recap
-    notes: list[str] = field(default_factory=list)

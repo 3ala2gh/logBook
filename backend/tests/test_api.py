@@ -4,7 +4,8 @@ from rest_framework.test import APIClient
 
 from planner.geometry import haversine_miles
 from services import geocoding, routing
-from services.places import Place, ProviderError
+from services.http import ProviderError
+from services.places import Place
 from services.routing import Route, RouteLeg, Unroutable
 
 LA = {'label': 'Los Angeles, CA', 'lat': 34.0522, 'lng': -118.2437}

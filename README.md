@@ -67,10 +67,10 @@ All constants are in [`backend/planner/config.py`](backend/planner/config.py) an
 ## Architecture
 
 ```
-backend/                     Django + DRF, stateless (no database)
-  planner/                   pure rules engine: hos.py, logs.py, geometry.py, config.py, models.py
-  services/                  routing.py (ORS → OSRM), geocoding.py (ORS → Photon), trip_plan.py (assembles the response)
-  trips/                     serializers, views, uniform error handler
+backend/                     Django + DRF, stateless (no database); layers depend downward only
+  planner/                   pure domain: hos.py (rules), logs.py (daily logs), stops.py, summary.py, config.py
+  services/                  I/O: routing.py (ORS → OSRM), geocoding.py (ORS → Photon), trip_plan.py (orchestrates)
+  trips/                     HTTP: serializers (in), presenters (out), errors, throttles, thin views
   tests/                     scenarios, Hypothesis property tests, API tests with mocked providers
 frontend/                    React + TypeScript + Vite + Tailwind, feature-based
   src/features/              trip-form, route-map, stop-timeline, trip-summary, log-sheets, health
