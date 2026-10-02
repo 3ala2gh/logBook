@@ -1,28 +1,30 @@
-import { useEffect, useId, useState } from 'react'
-import type { Place } from '../../../types/api'
-import { searchPlaces } from '../api'
+import { useId, useState } from 'react'
+import { Spinner } from '@/components/ui'
+import type { Place } from '@/types'
+import { MIN_SEARCH_CHARS } from '../constants'
+import { usePlaceSearch } from '../hooks/usePlaceSearch'
+import { optionId } from '../utils/ids'
+import { SuggestionList } from './SuggestionList'
 
-const MIN_CHARS = 3
-const DEBOUNCE_MS = 300
-
-interface Props {
+interface LocationAutocompleteProps {
   label: string
+  placeholder?: string
   marker: { glyph: string; className: string }
   value: Place | null
   onChange: (place: Place | null) => void
-  placeholder?: string
   error?: string
 }
 
-export function LocationAutocomplete({ label, marker, value, onChange, placeholder, error }: Props) {
+/** ARIA combobox: type to search, arrows to move, Enter to choose, Escape to close. */
+export function LocationAutocomplete({ label, placeholder, marker, value, onChange, error }: LocationAutocompleteProps) {
   const id = useId()
   const listId = `${id}-list`
+  const errorId = `${id}-error`
+
   const [text, setText] = useState(value?.label ?? '')
-  const [dirty, setDirty] = useState(false) // the user has typed since the last selection
-  const [results, setResults] = useState<{ query: string; places: Place[] }>({ query: '', places: [] })
+  const [dirty, setDirty] = useState(false) // typed since the last selection
   const [open, setOpen] = useState(false)
-  const [active, setActive] = useState(-1)
-  const [searchError, setSearchError] = useState<string | null>(null)
+  const [active, setActive] = useState({ query: '', index: 0 })
 
   // Follow the value when it is set from outside (e.g. "Try an example").
   const [prevValue, setPrevValue] = useState(value)
@@ -36,28 +38,11 @@ export function LocationAutocomplete({ label, marker, value, onChange, placehold
     }
   }
 
-  const query = dirty && text.trim().length >= MIN_CHARS ? text.trim() : ''
-  const options = query && results.query === query ? results.places : []
-  const loading = Boolean(query) && results.query !== query && !searchError
-
-  useEffect(() => {
-    if (!query) return
-    const controller = new AbortController()
-    const timer = setTimeout(async () => {
-      try {
-        const places = await searchPlaces(query, controller.signal)
-        setResults({ query, places })
-        setActive(places.length ? 0 : -1)
-        setSearchError(null)
-      } catch (err) {
-        if ((err as { code?: string }).code !== 'CANCELLED') setSearchError((err as Error).message)
-      }
-    }, DEBOUNCE_MS)
-    return () => {
-      clearTimeout(timer)
-      controller.abort()
-    }
-  }, [query])
+  const query = dirty && text.trim().length >= MIN_SEARCH_CHARS ? text.trim() : ''
+  const search = usePlaceSearch(query)
+  const activeIndex = active.query === query ? active.index : 0
+  const showList = open && search.ready
+  const message = error ?? search.error
 
   function choose(place: Place) {
     setDirty(false)
@@ -66,24 +51,23 @@ export function LocationAutocomplete({ label, marker, value, onChange, placehold
     onChange(place)
   }
 
+  function move(step: number) {
+    const count = search.places.length
+    if (count) setActive({ query, index: (activeIndex + step + count) % count })
+  }
+
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'ArrowDown') {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault()
       setOpen(true)
-      setActive((i) => (options.length ? (i + 1) % options.length : -1))
-    } else if (e.key === 'ArrowUp') {
+      move(e.key === 'ArrowDown' ? 1 : -1)
+    } else if (e.key === 'Enter' && showList && search.places[activeIndex]) {
       e.preventDefault()
-      setActive((i) => (options.length ? (i - 1 + options.length) % options.length : -1))
-    } else if (e.key === 'Enter' && open && active >= 0 && options[active]) {
-      e.preventDefault()
-      choose(options[active])
+      choose(search.places[activeIndex])
     } else if (e.key === 'Escape') {
       setOpen(false)
     }
   }
-
-  const showList = open && Boolean(query) && results.query === query
-  const describedBy = error || searchError ? `${id}-error` : undefined
 
   return (
     <div className="relative">
@@ -106,16 +90,15 @@ export function LocationAutocomplete({ label, marker, value, onChange, placehold
           aria-autocomplete="list"
           aria-expanded={showList}
           aria-controls={listId}
-          aria-activedescendant={showList && active >= 0 ? `${listId}-${active}` : undefined}
+          aria-activedescendant={showList && search.places.length ? optionId(listId, activeIndex) : undefined}
           aria-invalid={Boolean(error)}
-          aria-describedby={describedBy}
+          aria-describedby={message ? errorId : undefined}
           className={`field pr-9 pl-11 ${error ? 'border-red-400 focus:border-red-500 focus:ring-red-500/15' : ''}`}
           placeholder={placeholder}
           value={text}
           onChange={(e) => {
             setDirty(true)
             setText(e.target.value)
-            setSearchError(null)
             setOpen(true)
             if (value) onChange(null)
           }}
@@ -123,50 +106,33 @@ export function LocationAutocomplete({ label, marker, value, onChange, placehold
           onFocus={() => setOpen(true)}
           onBlur={() => setOpen(false)}
         />
-        {loading && (
-          <span
-            aria-hidden
-            className="absolute top-1/2 right-3 size-4 -translate-y-1/2 animate-spin rounded-full border-2 border-line border-t-ink"
-          />
-        )}
-        {!loading && value && (
-          <span aria-hidden className="absolute top-1/2 right-3 -translate-y-1/2 text-duty-d">
-            ✓
-          </span>
-        )}
+        <span className="absolute top-1/2 right-3 -translate-y-1/2">
+          {search.loading ? (
+            <Spinner />
+          ) : (
+            value && (
+              <span aria-hidden className="text-duty-d">
+                ✓
+              </span>
+            )
+          )}
+        </span>
       </div>
 
       {showList && (
-        <ul
+        <SuggestionList
           id={listId}
-          role="listbox"
-          aria-label={`${label} suggestions`}
-          className="absolute z-1100 mt-1 max-h-72 w-full overflow-auto rounded-xl border border-line bg-white py-1 shadow-lg"
-        >
-          {options.length === 0 ? (
-            <li className="px-3 py-2.5 text-sm text-muted">No places found. Try a city and state, e.g. "Tulsa, OK".</li>
-          ) : (
-            options.map((place, i) => (
-              <li
-                key={`${place.label}-${place.lat}-${place.lng}`}
-                id={`${listId}-${i}`}
-                role="option"
-                aria-selected={i === active}
-                className={`cursor-pointer px-3 py-2.5 text-[15px] ${i === active ? 'bg-paper text-ink' : 'text-ink-soft'}`}
-                onMouseDown={(e) => e.preventDefault()}
-                onMouseEnter={() => setActive(i)}
-                onClick={() => choose(place)}
-              >
-                {place.label}
-              </li>
-            ))
-          )}
-        </ul>
+          label={label}
+          places={search.places}
+          activeIndex={activeIndex}
+          onHover={(index) => setActive({ query, index })}
+          onChoose={choose}
+        />
       )}
 
-      {(error || searchError) && (
-        <p id={`${id}-error`} className="mt-1.5 text-[13px] text-red-600">
-          {error ?? searchError}
+      {message && (
+        <p id={errorId} className="mt-1.5 text-[13px] text-red-600">
+          {message}
         </p>
       )}
     </div>

@@ -1,86 +1,63 @@
 import { useState } from 'react'
-import type { LogDetails, Place, PlanRequest } from '../../../types/api'
-import { EXAMPLE_TRIP } from '../example'
+import { Spinner } from '@/components/ui'
+import type { PlanRequest } from '@/types'
+import { EXAMPLE_TRIP, LOCATION_FIELDS } from '../constants'
+import type { FieldErrors, LocationField, TripFormValues } from '../types'
+import { toPlanRequest, validateTrip } from '../utils/validateTrip'
+import { CycleHoursField } from './CycleHoursField'
+import { DepartureField } from './DepartureField'
 import { LocationAutocomplete } from './LocationAutocomplete'
 import { LogDetailsFields } from './LogDetailsFields'
 
-type Field = 'current' | 'pickup' | 'dropoff' | 'cycle_used_hours' | 'start_time'
-export type FieldErrors = Partial<Record<Field, string>>
-
-interface Props {
+interface TripFormProps {
   loading: boolean
+  /** Field errors returned by the API; cleared by the parent on each submit. */
   serverErrors?: FieldErrors
   onSubmit: (request: PlanRequest) => void
 }
 
-const MARKERS = {
-  current: { glyph: 'A', className: 'bg-ink' },
-  pickup: { glyph: 'P', className: 'bg-duty-on' },
-  dropoff: { glyph: 'D', className: 'bg-duty-d' },
+const INITIAL_VALUES: TripFormValues = {
+  current: null,
+  pickup: null,
+  dropoff: null,
+  cycleUsedHours: '0',
+  startTime: '',
+  logDetails: {},
 }
 
-export function TripForm({ loading, serverErrors, onSubmit }: Props) {
-  const [current, setCurrent] = useState<Place | null>(null)
-  const [pickup, setPickup] = useState<Place | null>(null)
-  const [dropoff, setDropoff] = useState<Place | null>(null)
-  const [cycle, setCycle] = useState('0')
-  const [startTime, setStartTime] = useState('')
-  const [details, setDetails] = useState<Partial<LogDetails>>({})
-  const [localErrors, setErrors] = useState<FieldErrors>({})
-  // The parent clears server errors on every submit; local checks take priority.
+const LOCATION_ORDER: LocationField[] = ['current', 'pickup', 'dropoff']
+
+export function TripForm({ loading, serverErrors, onSubmit }: TripFormProps) {
+  const [values, setValues] = useState<TripFormValues>(INITIAL_VALUES)
+  const [localErrors, setLocalErrors] = useState<FieldErrors>({})
   const errors: FieldErrors = { ...serverErrors, ...localErrors }
 
-  function validate(): FieldErrors {
-    const next: FieldErrors = {}
-    if (!current) next.current = 'Choose your current location from the suggestions.'
-    if (!pickup) next.pickup = 'Choose the pickup location from the suggestions.'
-    if (!dropoff) next.dropoff = 'Choose the drop-off location from the suggestions.'
-    const hours = Number(cycle)
-    if (cycle.trim() === '' || Number.isNaN(hours) || hours < 0 || hours > 70) {
-      next.cycle_used_hours = 'Enter the hours already used in this 70-hour cycle, from 0 to 70.'
-    }
-    if (pickup && dropoff && pickup.lat === dropoff.lat && pickup.lng === dropoff.lng) {
-      next.dropoff = 'Drop-off must be different from the pickup location.'
-    }
-    return next
+  function update<K extends keyof TripFormValues>(key: K, value: TripFormValues[K]) {
+    setValues((v) => ({ ...v, [key]: value }))
   }
 
-  function submit(request?: PlanRequest) {
-    if (request) return onSubmit(request)
-    const found = validate()
-    setErrors(found)
+  function submit(next: TripFormValues) {
+    const found = validateTrip(next)
+    setLocalErrors(found)
     if (Object.keys(found).length) {
       // wait for the error state to render, then move focus to the first problem
       requestAnimationFrame(() => document.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus())
       return
     }
-    onSubmit({
-      current: current!,
-      pickup: pickup!,
-      dropoff: dropoff!,
-      cycle_used_hours: Number(cycle),
-      start_time: startTime || null,
-      log_details: details,
-    })
+    onSubmit(toPlanRequest(next))
   }
 
   function tryExample() {
-    setCurrent(EXAMPLE_TRIP.current)
-    setPickup(EXAMPLE_TRIP.pickup)
-    setDropoff(EXAMPLE_TRIP.dropoff)
-    setCycle(String(EXAMPLE_TRIP.cycle))
-    setErrors({})
-    submit({
+    const next: TripFormValues = {
+      ...values,
       current: EXAMPLE_TRIP.current,
       pickup: EXAMPLE_TRIP.pickup,
       dropoff: EXAMPLE_TRIP.dropoff,
-      cycle_used_hours: EXAMPLE_TRIP.cycle,
-      start_time: startTime || null,
-      log_details: details,
-    })
+      cycleUsedHours: String(EXAMPLE_TRIP.cycleUsedHours),
+    }
+    setValues(next)
+    submit(next)
   }
-
-  const cycleNumber = Math.min(70, Math.max(0, Number(cycle) || 0))
 
   return (
     <form
@@ -88,7 +65,7 @@ export function TripForm({ loading, serverErrors, onSubmit }: Props) {
       noValidate
       onSubmit={(e) => {
         e.preventDefault()
-        submit()
+        submit(values)
       }}
     >
       <div className="mb-4 flex items-start justify-between gap-3">
@@ -102,99 +79,42 @@ export function TripForm({ loading, serverErrors, onSubmit }: Props) {
       </div>
 
       <div className="relative space-y-3.5">
+        {/* dashed rail linking A → P → D */}
         <span aria-hidden className="absolute top-12 bottom-12 left-5.75 border-l-2 border-dashed border-line" />
-        <LocationAutocomplete
-          label="Current location"
-          marker={MARKERS.current}
-          value={current}
-          onChange={setCurrent}
-          placeholder="Where is the truck now?"
-          error={errors.current}
-        />
-        <LocationAutocomplete
-          label="Pickup"
-          marker={MARKERS.pickup}
-          value={pickup}
-          onChange={setPickup}
-          placeholder="Shipper city or address"
-          error={errors.pickup}
-        />
-        <LocationAutocomplete
-          label="Drop-off"
-          marker={MARKERS.dropoff}
-          value={dropoff}
-          onChange={setDropoff}
-          placeholder="Receiver city or address"
-          error={errors.dropoff}
-        />
+        {LOCATION_ORDER.map((field) => {
+          const config = LOCATION_FIELDS[field]
+          return (
+            <LocationAutocomplete
+              key={field}
+              label={config.label}
+              placeholder={config.placeholder}
+              marker={{ glyph: config.glyph, className: config.markerClass }}
+              value={values[field]}
+              onChange={(place) => update(field, place)}
+              error={errors[field]}
+            />
+          )
+        })}
       </div>
 
       <div className="mt-5">
-        <div className="flex items-baseline justify-between">
-          <label htmlFor="cycle" className="field-label">
-            Current cycle used
-          </label>
-          <span className="font-mono text-xs text-muted">{(70 - cycleNumber).toFixed(2).replace(/\.00$/, '')} h left of 70</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <input
-            type="range"
-            min={0}
-            max={70}
-            step={0.25}
-            value={cycleNumber}
-            onChange={(e) => setCycle(e.target.value)}
-            className="h-2 flex-1 cursor-pointer accent-ink"
-            aria-label="Current cycle used, slider"
-          />
-          <div className="relative w-28">
-            <input
-              id="cycle"
-              type="number"
-              inputMode="decimal"
-              min={0}
-              max={70}
-              step={0.25}
-              className={`field pr-8 font-mono ${errors.cycle_used_hours ? 'border-red-400' : ''}`}
-              value={cycle}
-              onChange={(e) => setCycle(e.target.value)}
-              aria-invalid={Boolean(errors.cycle_used_hours)}
-              aria-describedby="cycle-help"
-            />
-            <span className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-sm text-muted">h</span>
-          </div>
-        </div>
-        <p id="cycle-help" className={`mt-1.5 text-[13px] ${errors.cycle_used_hours ? 'text-red-600' : 'text-muted'}`}>
-          {errors.cycle_used_hours ?? 'On-duty hours already used in the 70-hour / 8-day cycle.'}
-        </p>
-      </div>
-
-      <div className="mt-4">
-        <label htmlFor="start" className="field-label">
-          Departure <span className="font-normal text-muted">(optional)</span>
-        </label>
-        <input
-          id="start"
-          type="datetime-local"
-          step={900}
-          className="field"
-          value={startTime}
-          onChange={(e) => setStartTime(e.target.value)}
-          aria-describedby="start-help"
+        <CycleHoursField
+          value={values.cycleUsedHours}
+          onChange={(v) => update('cycleUsedHours', v)}
+          error={errors.cycle_used_hours}
         />
-        <p id="start-help" className="mt-1.5 text-[13px] text-muted">
-          {errors.start_time ?? "Home-terminal time at the current location. Leave empty to leave now."}
-        </p>
       </div>
-
       <div className="mt-4">
-        <LogDetailsFields value={details} onChange={setDetails} />
+        <DepartureField value={values.startTime} onChange={(v) => update('startTime', v)} error={errors.start_time} />
+      </div>
+      <div className="mt-4">
+        <LogDetailsFields value={values.logDetails} onChange={(v) => update('logDetails', v)} />
       </div>
 
       <button type="submit" className="btn-primary mt-5 w-full py-3" disabled={loading}>
         {loading ? (
           <>
-            <span aria-hidden className="size-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+            <Spinner tone="light" />
             Planning route…
           </>
         ) : (

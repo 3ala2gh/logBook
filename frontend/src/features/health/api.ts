@@ -1,4 +1,6 @@
-import { api } from '../../lib/axios'
+import { apiClient } from '@/lib/api-client'
 
-export const pingHealth = (timeoutMs: number) =>
-  api.get<{ status: string }>('/health/', { timeout: timeoutMs }).then((res) => res.data.status === 'ok')
+export async function pingHealth(timeoutMs: number): Promise<boolean> {
+  const res = await apiClient.get<{ status: string }>('/health/', { timeout: timeoutMs })
+  return res.data.status === 'ok'
+}

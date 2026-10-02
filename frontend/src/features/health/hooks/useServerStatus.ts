@@ -1,34 +1,32 @@
 import { useEffect, useState } from 'react'
 import { pingHealth } from '../api'
+import { GIVE_UP_AFTER_MS, PING_TIMEOUT_MS, RETRY_EVERY_MS, SLOW_AFTER_MS } from '../constants'
+import type { ServerStatus } from '../types'
 
-/**
- * checking → ready, or checking → waking → ready when the free-tier host has
- * to boot (it sleeps after 15 idle minutes and takes up to a minute to wake).
- */
-export type ServerStatus = 'checking' | 'waking' | 'ready' | 'down'
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
-const SLOW_AFTER_MS = 2500
-const GIVE_UP_AFTER_MS = 120_000
-
+/** Pings the API on load and keeps retrying while a sleeping free-tier host boots. */
 export function useServerStatus(): ServerStatus {
   const [status, setStatus] = useState<ServerStatus>('checking')
 
   useEffect(() => {
     let cancelled = false
     const startedAt = Date.now()
-    const slowTimer = setTimeout(() => !cancelled && setStatus((s) => (s === 'checking' ? 'waking' : s)), SLOW_AFTER_MS)
+    const slowTimer = setTimeout(() => {
+      if (!cancelled) setStatus((s) => (s === 'checking' ? 'waking' : s))
+    }, SLOW_AFTER_MS)
 
     async function poll() {
       while (!cancelled && Date.now() - startedAt < GIVE_UP_AFTER_MS) {
         try {
-          if (await pingHealth(20_000)) {
+          if (await pingHealth(PING_TIMEOUT_MS)) {
             if (!cancelled) setStatus('ready')
             return
           }
         } catch {
           // still booting; try again shortly
         }
-        await new Promise((resolve) => setTimeout(resolve, 3000))
+        await wait(RETRY_EVERY_MS)
       }
       if (!cancelled) setStatus('down')
     }

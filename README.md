@@ -72,9 +72,12 @@ backend/                     Django + DRF, stateless (no database)
   services/                  routing.py (ORS → OSRM), geocoding.py (ORS → Photon), trip_plan.py (assembles the response)
   trips/                     serializers, views, uniform error handler
   tests/                     scenarios, Hypothesis property tests, API tests with mocked providers
-frontend/                    React + TypeScript + Vite + Tailwind
+frontend/                    React + TypeScript + Vite + Tailwind, feature-based
   src/features/              trip-form, route-map, stop-timeline, trip-summary, log-sheets, health
-  src/types/api.ts           mirrors the API response
+  src/components/            shared UI (ui/, layout/)
+  src/constants/             duty colors, stop metadata, HOS figures
+  src/types/                 domain types mirroring the API (duty, place, trip, log, api)
+  src/lib/                   API client, formatting
 docs/reference/              assessment brief, FMCSA guide, blank log form
 ```
 

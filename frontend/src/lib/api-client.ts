@@ -1,20 +1,25 @@
 import axios, { AxiosError } from 'axios'
-import type { ApiErrorBody } from '../types/api'
+import type { ApiErrorBody } from '@/types'
 
-// In dev, Vite proxies /api to Django (see vite.config.ts).
-export const api = axios.create({
+/** In dev, Vite proxies /api to Django (vite.config.ts); in production VITE_API_URL points at Render. */
+export const apiClient = axios.create({
   baseURL: import.meta.env.VITE_API_URL ?? '/api',
   headers: { 'Content-Type': 'application/json' },
 })
 
 export class ApiError extends Error {
-  code: string
-  field?: string
+  readonly code: string
+  readonly field?: string
 
   constructor(message: string, code: string, field?: string) {
     super(message)
+    this.name = 'ApiError'
     this.code = code
     this.field = field
+  }
+
+  get cancelled(): boolean {
+    return this.code === 'CANCELLED'
   }
 }
 

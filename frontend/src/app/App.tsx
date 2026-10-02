@@ -1,8 +1,10 @@
-import { LogDemoPage } from '../pages/LogDemoPage'
-import { PlannerPage } from '../pages/PlannerPage'
+import { LogDemoPage } from '@/pages/log-demo/LogDemoPage'
+import { PlannerPage } from '@/pages/planner/PlannerPage'
 
-// Two pages don't need a router: /demo/log shows the FMCSA golden example.
+const LOG_DEMO_PATH = '/demo/log'
+
+// Two pages don't need a router; /demo/log shows the FMCSA golden example.
 export default function App() {
-  if (window.location.pathname.replace(/\/$/, '') === '/demo/log') return <LogDemoPage />
-  return <PlannerPage />
+  const path = window.location.pathname.replace(/\/$/, '')
+  return path === LOG_DEMO_PATH ? <LogDemoPage /> : <PlannerPage />
 }

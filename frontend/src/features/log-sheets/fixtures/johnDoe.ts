@@ -1,4 +1,4 @@
-import type { DailyLog, DaySegment, DutyStatus, LogDetails, Remark } from '../../../types/api'
+import type { DailyLog, DaySegment, DutyStatus, LogDetails, Remark } from '@/types'
 
 /**
  * The completed log from the FMCSA "Interstate Truck Driver's Guide to Hours
