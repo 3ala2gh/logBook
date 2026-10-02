@@ -64,6 +64,13 @@ REST_FRAMEWORK = {
 }
 
 CORS_ALLOWED_ORIGINS = env_list('CORS_ALLOWED_ORIGINS', 'http://localhost:3000,http://localhost:5173')
+# Optional, e.g. ^https://eld-trip-planner(-[\w-]+)?\.vercel\.app$ to allow Vercel preview deployments.
+CORS_ALLOWED_ORIGIN_REGEXES = env_list('CORS_ALLOWED_ORIGIN_REGEXES')
+
+if not DEBUG:
+    # Render terminates TLS at its proxy.
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_CONTENT_TYPE_NOSNIFF = True
 
 # External providers
 ORS_API_KEY = os.environ.get('ORS_API_KEY', '')

@@ -50,8 +50,8 @@ export function TripForm({ loading, serverErrors, onSubmit }: Props) {
     const found = validate()
     setErrors(found)
     if (Object.keys(found).length) {
-      const first = document.querySelector<HTMLElement>('[aria-invalid="true"]')
-      first?.focus()
+      // wait for the error state to render, then move focus to the first problem
+      requestAnimationFrame(() => document.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus())
       return
     }
     onSubmit({
