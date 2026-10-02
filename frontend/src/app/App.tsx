@@ -1,10 +1,8 @@
-import { HealthBadge } from '../features/health'
+import { LogDemoPage } from '../pages/LogDemoPage'
+import { PlannerPage } from '../pages/PlannerPage'
 
+// Two pages don't need a router: /demo/log shows the FMCSA golden example.
 export default function App() {
-  return (
-    <main className="min-h-screen flex flex-col items-center justify-center gap-4 bg-slate-50 text-slate-900">
-      <h1 className="text-4xl font-bold">LogBook</h1>
-      <HealthBadge />
-    </main>
-  )
+  if (window.location.pathname.replace(/\/$/, '') === '/demo/log') return <LogDemoPage />
+  return <PlannerPage />
 }

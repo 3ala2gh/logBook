@@ -1,5 +1,4 @@
 import { api } from '../../lib/axios'
-import type { HealthResponse } from './types'
 
-export const getHealth = () =>
-  api.get<HealthResponse>('/health/').then((res) => res.data)
+export const pingHealth = (timeoutMs: number) =>
+  api.get<{ status: string }>('/health/', { timeout: timeoutMs }).then((res) => res.data.status === 'ok')
